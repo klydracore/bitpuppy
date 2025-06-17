@@ -36,9 +36,7 @@ jobs:
           rm -rf bin
           mkdir -p bin
           cargo build --release
-          mv target/release/whee bin/
-          mv target/release/wheec bin/
-          mv target/release/wcc bin/
+          mv target/release/bitey bin/
 
       - name: Upload Binaries as Artifact
         uses: actions/upload-artifact@v4
