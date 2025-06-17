@@ -1,6 +1,28 @@
+use clap::{Parser, Subcommand};
 use serde::Deserialize;
 use std::{collections::HashMap, fs, path::PathBuf, process::Command};
 use walkdir::WalkDir;
+
+/// CLI tool for Bitey
+#[derive(Parser)]
+#[command(name = "bitey")]
+#[command(about = "The Bitey Package Manager", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    Install {
+        /// Package to install
+        package: String,
+
+        /// Skip SSL cert verification
+        #[arg(long)]
+        insecure: bool,
+    },
+}
 
 #[derive(Debug, Deserialize)]
 struct RemoteYml {
@@ -50,60 +72,91 @@ fn find_remotes(remotes_dir: &str) -> HashMap<String, String> {
     remotes
 }
 
-fn fetch_package_list(remote_url: &str) -> Vec<String> {
+fn fetch_package_list(remote_url: &str, insecure: bool) -> Vec<String> {
     let list_url = format!("{}/list.txt", remote_url);
-    let response = reqwest::blocking::get(&list_url)
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(insecure)
+        .build()
+        .expect("HTTP client build failed");
+
+    let response = client
+        .get(&list_url)
+        .send()
         .expect("Failed to fetch list.txt")
         .text()
         .expect("Failed to read list.txt");
+
     response.lines().map(|s| s.to_string()).collect()
 }
 
-fn fetch_package_yml(remote_url: &str, package_name: &str) -> PackageYml {
+fn fetch_package_yml(remote_url: &str, package_name: &str, insecure: bool) -> PackageYml {
     let url = format!("{}/{}.yml", remote_url, package_name);
-    let response = reqwest::blocking::get(&url)
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(insecure)
+        .build()
+        .expect("HTTP client build failed");
+
+    let response = client
+        .get(&url)
+        .send()
         .expect("Failed to fetch package.yml")
         .text()
         .expect("Failed to read package.yml");
+
     serde_yaml::from_str(&response).expect("Invalid package.yml format")
 }
 
-fn install_package(pkg: &PackageYml, package_name: &str) {
+fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
     let install_dir = format!("/opt/bitey/Chocolaterie/{}", package_name);
     fs::create_dir_all(&install_dir).expect("Failed to create package install dir");
 
-    // Download raw package if exists
+    // Download .choco.pkg
     if let Some(pkg_url) = &pkg.source.package {
         let filename = format!("{}/{}.choco.pkg", install_dir, package_name);
-        let response = reqwest::blocking::get(pkg_url).expect("Failed to download package");
-        let bytes = response.bytes().expect("Invalid package content");
-        fs::write(&filename, &bytes).expect("Failed to write package file");
+        let client = reqwest::blocking::Client::builder()
+            .danger_accept_invalid_certs(insecure)
+            .build()
+            .expect("HTTP client build failed");
+
+        let response = client
+            .get(pkg_url)
+            .send()
+            .expect("Failed to download package")
+            .bytes()
+            .expect("Invalid package content");
+
+        fs::write(&filename, &response).expect("Failed to write package file");
     }
 
-    // Run install commands
+    // Run install
     println!("Installing {} v{}...", pkg.name, pkg.version);
     Command::new("sh")
         .arg("-c")
         .arg(&pkg.install.commands)
         .status()
-        .expect("Failed to execute install script");
+        .expect("Install script failed");
 }
 
 fn main() {
-    let remotes = find_remotes("/opt/bitey/Chocobitey/remotes");
+    let cli = Cli::parse();
 
-    for (remote_name, remote_url) in remotes {
-        println!("Fetching from remote: {} ({})", remote_name, remote_url);
+    match &cli.command {
+        Commands::Install { package, insecure } => {
+            let remotes = find_remotes("/opt/bitey/Chocobitey/remotes");
 
-        let packages = fetch_package_list(&remote_url);
-        println!("Found packages: {:?}", packages);
+            for (remote_name, remote_url) in remotes {
+                println!("Fetching from remote: {} ({})", remote_name, remote_url);
+                let packages = fetch_package_list(&remote_url, *insecure);
 
-        for pkg_name in &packages {
-            let pkg = fetch_package_yml(&remote_url, pkg_name);
-            println!("Package: {} - {}", pkg.name, pkg.description);
+                if packages.contains(package) {
+                    let pkg = fetch_package_yml(&remote_url, package, *insecure);
+                    install_package(&pkg, package, *insecure);
+                    return;
+                }
+            }
 
-            // For demonstration: Install it right away
-            install_package(&pkg, pkg_name);
+            eprintln!("✗ Package not found: {}", package);
+            std::process::exit(1);
         }
     }
 }
