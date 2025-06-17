@@ -1,0 +1,65 @@
+name: 🍫 Release Bitey
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  checkout:
+    name: 📃 Checkout
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.get_commit.outputs.commit }}
+    steps:
+      - name: Checkout Code
+        id: get_commit
+        uses: actions/checkout@v4
+
+      - name: Save Commit SHA
+        run: echo "commit=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+  build:
+    name: 🏗️ Build
+    needs: checkout
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust Compiler
+        run: |
+          sudo apt update
+          sudo apt install -y rustc cargo
+
+      - name: Compile Rust files into bin/
+        run: |
+          rm -rf bin
+          mkdir -p bin
+          cargo build --release
+          mv target/release/whee bin/
+          mv target/release/wheec bin/
+          mv target/release/wcc bin/
+
+      - name: Upload Binaries as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitey-binaries
+          path: bin/
+
+  release:
+    name: 📤 Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Compiled Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: bitey-binaries
+          path: bin/
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bin/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
