@@ -129,6 +129,7 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
             eprintln!("✗ curl failed to download package");
             std::process::exit(1);
         }
+
         let status = Command::new("tar")
             .args(["-xf", &out_file, "-C", &install_dir])
             .status()
@@ -137,6 +138,11 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
         if !status.success() {
             eprintln!("✗ tar failed to extract package");
             std::process::exit(1);
+        }
+
+        // ✅ Remove the .choco.pkg file after extraction
+        if let Err(e) = fs::remove_file(&out_file) {
+            eprintln!("⚠️  Failed to remove package archive: {}", e);
         }
     }
 
@@ -152,7 +158,7 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
         std::process::exit(1);
     }
     if status.success() {
-        println!("🍫 /opt/bitey/Chocolaterie/{}: installed v{}", pkg.name, pkg.version);
+        println!("🍫 {}: installed v{}", pkg.name, pkg.version);
     }
 }
 
