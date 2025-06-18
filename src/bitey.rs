@@ -181,7 +181,7 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool, pointer
         std::process::exit(1);
     }
 
-    println!("🍫 {}: installed v{}", pkg.name, pkg.version);
+    println!("🍫   {}: installed v{}", pkg.name, pkg.version);
 }
 
 fn update_package(package_name: &str, insecure: bool) {
@@ -223,7 +223,7 @@ fn update_package(package_name: &str, insecure: bool) {
     };
 
     if needs_update {
-        println!("⬆️ Updating {} → v{}", package_name, new_pkg.version);
+        println!("⬆️    Updating {} → v{}", package_name, new_pkg.version);
         install_package(&new_pkg, package_name, insecure, &pointer_str);
     } else {
         println!("✔ {} is up to date (v{})", package_name, new_pkg.version);
@@ -244,7 +244,7 @@ fn remove_package(package_name: &str) {
         .expect("Failed to run rm -rf");
 
     if status.success() {
-        println!("🗑️ {} removed successfully", package_name);
+        println!("🗑️   {} removed successfully", package_name);
     } else {
         eprintln!("✗ Failed to remove package");
         std::process::exit(1);
