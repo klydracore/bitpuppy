@@ -108,33 +108,51 @@ fn fetch_package_yml(remote_url: &str, package_name: &str, insecure: bool) -> Pa
 
 fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
     let install_dir = format!("/opt/bitey/Chocolaterie/{}", package_name);
-    fs::create_dir_all(&install_dir).expect("Failed to create package install dir");
+    fs::create_dir_all(&install_dir).expect("Failed to create install directory");
 
-    // Download .choco.pkg
     if let Some(pkg_url) = &pkg.source.package {
-        let filename = format!("{}/{}.choco.pkg", install_dir, package_name);
-        let client = reqwest::blocking::Client::builder()
-            .danger_accept_invalid_certs(insecure)
-            .build()
-            .expect("HTTP client build failed");
+        let out_file = format!("{}/{}.choco.pkg", install_dir, package_name);
 
-        let response = client
-            .get(pkg_url)
-            .send()
-            .expect("Failed to download package")
-            .bytes()
-            .expect("Invalid package content");
+        println!("→ Downloading package: {}", pkg_url);
 
-        fs::write(&filename, &response).expect("Failed to write package file");
+        let mut curl_args = vec!["--progress-bar", "-L", "-o", &out_file, pkg_url];
+        if insecure {
+            curl_args.insert(0, "--insecure");
+        }
+
+        let status = Command::new("curl")
+            .args(curl_args)
+            .status()
+            .expect("Failed to run curl");
+
+        if !status.success() {
+            eprintln!("✗ curl failed to download package");
+            std::process::exit(1);
+        }
+
+        println!("→ Extracting .choco.pkg...");
+        let status = Command::new("tar")
+            .args(["-xf", &out_file, "-C", &install_dir])
+            .status()
+            .expect("Failed to extract package");
+
+        if !status.success() {
+            eprintln!("✗ tar failed to extract package");
+            std::process::exit(1);
+        }
     }
 
-    // Run install
-    println!("Installing {} v{}...", pkg.name, pkg.version);
-    Command::new("sh")
+    println!("✓ Installing {} v{}...", pkg.name, pkg.version);
+    let status = Command::new("sh")
         .arg("-c")
         .arg(&pkg.install.commands)
         .status()
         .expect("Install script failed");
+
+    if !status.success() {
+        eprintln!("✗ Installation script failed");
+        std::process::exit(1);
+    }
 }
 
 fn main() {
