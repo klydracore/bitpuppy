@@ -152,7 +152,7 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool, pointer
             .expect("Failed to run curl");
 
         if !status.success() {
-            eprintln!("\u2717 curl failed to download package");
+            eprintln!("✗ curl failed to download package");
             std::process::exit(1);
         }
 
@@ -162,7 +162,7 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool, pointer
             .expect("Failed to extract package");
 
         if !status.success() {
-            eprintln!("\u2717 tar failed to extract package");
+            eprintln!("✗ tar failed to extract package");
             std::process::exit(1);
         }
 
@@ -177,11 +177,11 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool, pointer
         .expect("Install script failed");
 
     if !status.success() {
-        eprintln!("\u2717 Installation script failed");
+        eprintln!("✗ Installation script failed");
         std::process::exit(1);
     }
 
-    println!("\ud83c\udf6b {}: installed v{}", pkg.name, pkg.version);
+    println!("🍫 {}: installed v{}", pkg.name, pkg.version);
 }
 
 fn update_package(package_name: &str, insecure: bool) {
@@ -190,7 +190,7 @@ fn update_package(package_name: &str, insecure: bool) {
     let thread_yml = format!("{}/Thread.yml", dir);
 
     if !PathBuf::from(&pkg_yml).exists() {
-        println!("\u2717 Package {} not installed", package_name);
+        println!("✗ Package {} not installed", package_name);
         return;
     }
 
@@ -223,10 +223,10 @@ fn update_package(package_name: &str, insecure: bool) {
     };
 
     if needs_update {
-        println!("\u2b06\ufe0f  Updating {} \u2192 v{}", package_name, new_pkg.version);
+        println!("⬆️ Updating {} → v{}", package_name, new_pkg.version);
         install_package(&new_pkg, package_name, insecure, &pointer_str);
     } else {
-        println!("\u2714 {} is up to date (v{})", package_name, new_pkg.version);
+        println!("✔ {} is up to date (v{})", package_name, new_pkg.version);
     }
 }
 
@@ -234,7 +234,7 @@ fn remove_package(package_name: &str) {
     let install_dir = format!("/opt/bitey/Chocolaterie/{}", package_name);
 
     if !PathBuf::from(&install_dir).exists() {
-        eprintln!("\u2717 Package not found: {}", package_name);
+        eprintln!("✗ Package not found: {}", package_name);
         std::process::exit(1);
     }
 
@@ -244,9 +244,9 @@ fn remove_package(package_name: &str) {
         .expect("Failed to run rm -rf");
 
     if status.success() {
-        println!("\ud83d\uddd1\ufe0f {} removed successfully", package_name);
+        println!("🗑️ {} removed successfully", package_name);
     } else {
-        eprintln!("\u2717 Failed to remove package");
+        eprintln!("✗ Failed to remove package");
         std::process::exit(1);
     }
 }
@@ -271,13 +271,13 @@ fn add_remote(remote_arg: &str) {
         Ok(_) => {
             let file_path = format!("{}/remote.yml", target_dir);
             if let Err(e) = fs::write(&file_path, remote_yml) {
-                eprintln!("\u2717 Failed to write remote.yml: {}", e);
+                eprintln!("✗ Failed to write remote.yml: {}", e);
                 std::process::exit(1);
             }
-            println!("\u2705 Remote added: {}", url);
+            println!("✅ Remote added: {}", url);
         }
         Err(e) => {
-            eprintln!("\u2717 Failed to create remote directory: {}", e);
+            eprintln!("✗ Failed to create remote directory: {}", e);
             std::process::exit(1);
         }
     }
@@ -297,7 +297,7 @@ fn main() {
                     return;
                 }
             }
-            eprintln!("\u2717 Package not found: {}", package);
+            eprintln!("✗ Package not found: {}", package);
             std::process::exit(1);
         }
         Commands::Remove { package } => remove_package(package),
