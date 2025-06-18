@@ -162,6 +162,27 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
     }
 }
 
+fn remove_package(package_name: &str) {
+    let install_dir = format!("/opt/bitey/Chocolaterie/{}", package_name);
+
+    if !PathBuf::from(&install_dir).exists() {
+        eprintln!("✗ Package not found: {}", package_name);
+        std::process::exit(1);
+    }
+
+    let status = Command::new("rm")
+        .args(["-rf", &install_dir])
+        .status()
+        .expect("Failed to run rm -rf");
+
+    if status.success() {
+        println!("🗑️ {} removed successfully", package_name);
+    } else {
+        eprintln!("✗ Failed to remove package");
+        std::process::exit(1);
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -169,7 +190,7 @@ fn main() {
         Commands::Install { package, insecure } => {
             let remotes = find_remotes("/opt/bitey/Chocobitey/remotes");
 
-            for (remote_name, remote_url) in remotes {
+            for (_remote_name, remote_url) in remotes {
                 let packages = fetch_package_list(&remote_url, *insecure);
 
                 if packages.contains(package) {
@@ -181,6 +202,9 @@ fn main() {
 
             eprintln!("✗ Package not found: {}", package);
             std::process::exit(1);
+        }
+        Commands::Remove { package } => {
+            remove_package(package);
         }
     }
 }
