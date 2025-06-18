@@ -113,7 +113,7 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
     if let Some(pkg_url) = &pkg.source.package {
         let out_file = format!("{}/{}.choco.pkg", install_dir, package_name);
 
-        println!("→ Downloading package: {}", pkg_url);
+        println!(">> Downloading package: {}", pkg_url);
 
         let mut curl_args = vec!["--progress-bar", "-L", "-o", &out_file, pkg_url];
         if insecure {
@@ -129,8 +129,6 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
             eprintln!("✗ curl failed to download package");
             std::process::exit(1);
         }
-
-        println!("→ Extracting .choco.pkg...");
         let status = Command::new("tar")
             .args(["-xf", &out_file, "-C", &install_dir])
             .status()
@@ -142,7 +140,7 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
         }
     }
 
-    println!("✓ Installing {} v{}...", pkg.name, pkg.version);
+    println!(">> Installing {} v{}...", pkg.name, pkg.version);
     let status = Command::new("sh")
         .arg("-c")
         .arg(&pkg.install.commands)
@@ -152,6 +150,9 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
     if !status.success() {
         eprintln!("✗ Installation script failed");
         std::process::exit(1);
+    }
+    if status.success() {
+        println!("🍫 /opt/bitey/Chocolaterie/{}: installed v{}", pkg.name, pkg.version);
     }
 }
 
