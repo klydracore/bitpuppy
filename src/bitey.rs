@@ -113,7 +113,7 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
     if let Some(pkg_url) = &pkg.source.package {
         let out_file = format!("{}/{}.choco.pkg", install_dir, package_name);
 
-        println!(">> Downloading package: {}", pkg_url);
+        println!("==> Downloading package: {}", pkg_url);
 
         let mut curl_args = vec!["--progress-bar", "-L", "-o", &out_file, pkg_url];
         if insecure {
@@ -140,7 +140,7 @@ fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool) {
         }
     }
 
-    println!(">> Installing {} v{}...", pkg.name, pkg.version);
+    println!("==> Installing {} v{}...", pkg.name, pkg.version);
     let status = Command::new("sh")
         .arg("-c")
         .arg(&pkg.install.commands)
@@ -164,7 +164,6 @@ fn main() {
             let remotes = find_remotes("/opt/bitey/Chocobitey/remotes");
 
             for (remote_name, remote_url) in remotes {
-                println!("Fetching from remote: {} ({})", remote_name, remote_url);
                 let packages = fetch_package_list(&remote_url, *insecure);
 
                 if packages.contains(package) {
