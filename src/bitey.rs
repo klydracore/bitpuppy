@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::PathBuf, process::Command};
 use walkdir::WalkDir;
 
@@ -56,6 +56,32 @@ struct SourceUrls {
 #[derive(Debug, Deserialize)]
 struct InstallBlock {
     commands: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PackageYml {
+    name: String,
+    version: String,
+    maintainer: String,
+    description: String,
+    source: SourceUrls,
+    install: InstallBlock,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SourceUrls {
+    raw: Option<String>,
+    package: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct InstallBlock {
+    commands: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RemoteYml {
+    url: String,
 }
 
 fn find_remotes(remotes_dir: &str) -> HashMap<String, String> {
