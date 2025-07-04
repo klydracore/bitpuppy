@@ -150,7 +150,7 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     std::string cmd = "curl -s -L -o " + file + " " + pkg.url;
     std::system(cmd.c_str());
 
-    std::string tar_cmd = "tar -xf " + file + " -C " + path.string();
+    std::string tar_cmd = "tar --strip-components=1 -xf " + file + " -C " + path.string();
     std::system(tar_cmd.c_str());
     std::remove(file.c_str());
 
