@@ -21,6 +21,7 @@ struct Package {
     std::string version;
     std::string commands;
     std::string url;
+    std::string root; // added
 };
 
 void prompt_help() {
@@ -86,6 +87,8 @@ Package fetch_package(const std::string& pkgname, const std::string& remote) {
     pkg.version = thread["version"].as<std::string>();
     pkg.commands = thread["install"]["commands"].as<std::string>();
     pkg.url = thread["source"]["package"].as<std::string>();
+    pkg.root = pkgname; // <<<< use original YAML name here
+
     if (thread["dependencies"]) {
         for (auto dep : thread["dependencies"]) {
             pkg.dependencies.push_back(dep.as<std::string>());
@@ -101,6 +104,7 @@ void install_with_deps(const Package& pkg, std::set<std::string>& installed, boo
         if (installed.count(dep)) continue;
         for (const auto& remote : get_remotes()) {
             Package dep_pkg = fetch_package(dep, remote);
+            dep_pkg.root = pkg.root; // <- propagate the root
             install_with_deps(dep_pkg, installed, autoYes);
             break;
         }
@@ -121,7 +125,7 @@ void save_dependency_record(const std::string& dep, const std::string& owner) {
 }
 
 void install_package(const Package& pkg, std::set<std::string>& installed, bool autoYes) {
-    fs::path path = "/opt/bitey/Chocolaterie/" + pkg.name;
+    fs::path path = "/opt/bitey/Chocolaterie/" + pkg.root;
     if (fs::exists(path)) return;
 
     std::cout << "\n\U0001F4E5 Installing:\n- " << pkg.name << "\n";
@@ -191,6 +195,7 @@ void update_all() {
         std::cout << "⬆️  Updating " << name << "...\n";
         for (const auto& remote : get_remotes()) {
             Package pkg = fetch_package(name, remote);
+            pkg.root = name;
             std::set<std::string> installed;
             install_package(pkg, installed, true);
             break;
@@ -223,6 +228,7 @@ int main(int argc, char* argv[]) {
         for (const auto& pkgname : packages) {
             for (const auto& remote : get_remotes()) {
                 Package pkg = fetch_package(pkgname, remote);
+                pkg.root = pkgname;
                 install_with_deps(pkg, installed, autoYes);
                 break;
             }
