@@ -92,7 +92,7 @@ fn fetch_thread(remote_url: &str, package_name: &str, insecure: bool) -> (String
 }
 
 fn install_with_deps(packages: Vec<String>, auto_yes: bool, insecure: bool) {
-    let mut remotes = find_remotes("/opt/bitey/Chocobitey/remotes");
+    let remotes = find_remotes(...);
     let mut all_to_install = HashMap::new();
     let mut seen = HashSet::new();
 
@@ -173,7 +173,7 @@ fn remove_package(name: &str, auto_yes: bool) {
         return;
     }
     Command::new("rm").args(["-rf", &dir]).status().unwrap();
-    println!("✅ Removed {}");
+    println!("✅ Removed {}", name);
 }
 
 fn add_remote(arg: &str) {
