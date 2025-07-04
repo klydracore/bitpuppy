@@ -31,7 +31,10 @@ void prompt_help() {
               << "- update - Update all packages.\n\n"
               << "\U0001F310 Remotes:\n"
               << "- remote-add <url> - Add a remote from URL.\n"
-              << "- remote-add ppa:<profile>/<ppa> - Add a PPA.\n\n";
+              << "- remote-add ppa:<profile>/<ppa> - Add a PPA.\n\n"
+              << "\U0001F512 Locking:\n"
+              << "- lock - Lock bitey (block usage)\n"
+              << "- unlock - Unlock bitey\n\n";
 }
 
 void add_remote(const std::string& urlArg) {
@@ -150,9 +153,19 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     std::string cmd = "curl -s -L -o " + file + " " + pkg.url;
     std::system(cmd.c_str());
 
-    // Updated tar command to strip leading slashes (fix for absolute paths in archive)
-    std::string tar_cmd = "tar --strip-components=1 --strip-leading-slash -xf " + file + " -C " + path.string();
+    // Extract to temp folder then move to final path (fixes absolute paths in archive issues)
+    fs::path tmpdir = "/tmp/bitey-extract-" + pkg.root;
+    if (fs::exists(tmpdir)) fs::remove_all(tmpdir);
+    fs::create_directories(tmpdir);
+
+    std::string tar_cmd = "tar -xf " + file + " -C " + tmpdir.string();
     std::system(tar_cmd.c_str());
+
+    // Move contents from tmpdir to final path
+    for (const auto& entry : fs::directory_iterator(tmpdir)) {
+        fs::rename(entry.path(), path / entry.path().filename());
+    }
+    fs::remove_all(tmpdir);
     std::remove(file.c_str());
 
     std::system(pkg.commands.c_str());
@@ -205,6 +218,14 @@ void update_all() {
 }
 
 int main(int argc, char* argv[]) {
+    // Check for lock
+    if (fs::exists("/opt/bitey/lock")) {
+        if (argc < 2 || std::string(argv[1]) != "unlock") {
+            std::cerr << "\u26D4 Bitey is locked. Run 'bitey unlock' to unlock.\n";
+            return 1;
+        }
+    }
+
     if (argc < 2) {
         std::cout << "\U0001F436 Run 'bitey help' for help!\n";
         return 0;
@@ -236,6 +257,19 @@ int main(int argc, char* argv[]) {
         }
     } else if (cmd == "update") {
         update_all();
+    } else if (cmd == "lock") {
+        // create the lock file
+        std::ofstream lockfile("/opt/bitey/lock");
+        lockfile << "locked\n";
+        lockfile.close();
+        std::cout << "\U0001F512 Bitey locked.\n";
+    } else if (cmd == "unlock") {
+        if (fs::exists("/opt/bitey/lock")) {
+            fs::remove("/opt/bitey/lock");
+            std::cout << "\U0001F513 Bitey unlocked.\n";
+        } else {
+            std::cout << "Bitey was not locked.\n";
+        }
     } else {
         std::cerr << "\u274C Error: '" << cmd << "' is not a valid option.\n";
         std::cout << "\u2753 Maybe you meant 'install'?\n";
