@@ -19,24 +19,26 @@ jobs:
         run: echo "commit=${{ github.sha }}" >> $GITHUB_OUTPUT
 
   build:
-    name: 🏗️ Build
+    name: 🏗️ Build (C++)
     needs: checkout
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Rust Compiler
+      - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y rustc cargo
+          sudo apt install -y cmake g++ libyaml-cpp-dev nlohmann-json3-dev
 
-      - name: Compile Rust files into bin/
+      - name: Build with CMake
         run: |
-          rm -rf bin
-          mkdir -p bin
-          cargo build --release
-          mv target/release/bitey bin/
+          rm -rf build bin
+          mkdir -p build bin
+          cd build
+          cmake ..
+          make
+          cp bitey ../bin/bitey
 
       - name: Upload Binaries as Artifact
         uses: actions/upload-artifact@v4
