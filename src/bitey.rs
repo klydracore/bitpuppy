@@ -1,9 +1,11 @@
+// Updated Bitey with new prompts, dependency support, and multi-package install
+
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::PathBuf, process::Command};
+use std::{collections::{HashMap, HashSet}, fs, path::PathBuf, process::Command};
 use walkdir::WalkDir;
+use dialoguer::Confirm;
 
-/// CLI tool for Bitey
 #[derive(Parser)]
 #[command(name = "bitey")]
 #[command(about = "The Bitey Package Manager", long_about = None)]
@@ -15,12 +17,16 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Install {
-        package: String,
+        packages: Vec<String>,
+        #[arg(short, long)]
+        yes: bool,
         #[arg(long)]
         insecure: bool,
     },
     Remove {
         package: String,
+        #[arg(short, long)]
+        yes: bool,
     },
     RemoteAdd {
         remote: String,
@@ -30,12 +36,11 @@ enum Commands {
         #[arg(long)]
         insecure: bool,
     },
+    Help,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct RemoteYml {
-    url: String,
-}
+struct RemoteYml { url: String }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PackageYml {
@@ -45,6 +50,7 @@ struct PackageYml {
     description: String,
     source: SourceUrls,
     install: InstallBlock,
+    dependencies: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,264 +64,175 @@ struct InstallBlock {
     commands: String,
 }
 
+fn prompt_confirm(message: &str, auto_yes: bool) -> bool {
+    if auto_yes { return true; }
+    Confirm::new().with_prompt(message).default(true).interact().unwrap()
+}
+
 fn find_remotes(remotes_dir: &str) -> HashMap<String, String> {
     let mut remotes = HashMap::new();
-    for entry in WalkDir::new(remotes_dir)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_name() == "remote.yml")
-    {
-        let contents = fs::read_to_string(entry.path()).expect("Failed to read remote.yml");
-        let remote: RemoteYml = serde_yaml::from_str(&contents).expect("Invalid YAML format");
-        let name = entry
-            .path()
-            .parent()
-            .unwrap()
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+    for entry in WalkDir::new(remotes_dir).into_iter().filter_map(Result::ok).filter(|e| e.file_name() == "remote.yml") {
+        let contents = fs::read_to_string(entry.path()).unwrap();
+        let remote: RemoteYml = serde_yaml::from_str(&contents).unwrap();
+        let name = entry.path().parent().unwrap().file_name().unwrap().to_string_lossy().to_string();
         remotes.insert(name, remote.url);
     }
     remotes
 }
 
-fn fetch_package_list(remote_url: &str, insecure: bool) -> Vec<String> {
-    let list_url = format!("{}/list.txt", remote_url);
-    let client = reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(insecure)
-        .build()
-        .expect("HTTP client build failed");
-
-    let response = client
-        .get(&list_url)
-        .send()
-        .expect("Failed to fetch list.txt")
-        .text()
-        .expect("Failed to read list.txt");
-
-    response.lines().map(|s| s.to_string()).collect()
-}
-
-fn fetch_thread_from_pointer(remote_url: &str, package_name: &str, insecure: bool) -> (String, PackageYml) {
+fn fetch_thread(remote_url: &str, package_name: &str, insecure: bool) -> (String, PackageYml) {
     let pointer_url = format!("{}/{}.yml", remote_url, package_name);
-    let client = reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(insecure)
-        .build()
-        .expect("HTTP client build failed");
-
-    let pointer_content = client
-        .get(&pointer_url)
-        .send()
-        .expect("Failed to fetch pointer YAML")
-        .text()
-        .expect("Failed to read pointer YAML");
-
-    #[derive(Deserialize)]
-    struct Pointer { url: String }
-
-    let pointer: Pointer = serde_yaml::from_str(&pointer_content).expect("Invalid pointer format");
-
-    let thread_content = client
-        .get(&pointer.url)
-        .send()
-        .expect("Failed to fetch Thread.yml")
-        .text()
-        .expect("Failed to read Thread.yml");
-
-    let package: PackageYml = serde_yaml::from_str(&thread_content).expect("Invalid Thread.yml format");
-
-    (pointer_content, package)
+    let client = reqwest::blocking::Client::builder().danger_accept_invalid_certs(insecure).build().unwrap();
+    let pointer_content = client.get(&pointer_url).send().unwrap().text().unwrap();
+    let pointer: serde_yaml::Value = serde_yaml::from_str(&pointer_content).unwrap();
+    let thread_url = pointer["url"].as_str().unwrap();
+    let thread_content = client.get(thread_url).send().unwrap().text().unwrap();
+    let pkg: PackageYml = serde_yaml::from_str(&thread_content).unwrap();
+    (pointer_content, pkg)
 }
 
-fn install_package(pkg: &PackageYml, package_name: &str, insecure: bool, pointer_yaml: &str) {
-    let install_dir = format!("/opt/bitey/Chocolaterie/{}", package_name);
-    fs::create_dir_all(&install_dir).expect("Failed to create install directory");
+fn install_with_deps(packages: Vec<String>, auto_yes: bool, insecure: bool) {
+    let mut remotes = find_remotes("/opt/bitey/Chocobitey/remotes");
+    let mut all_to_install = HashMap::new();
+    let mut seen = HashSet::new();
 
-    fs::write(format!("{}/Thread.yml", install_dir), serde_yaml::to_string(pkg).unwrap())
-        .expect("Failed to write Thread.yml");
-    fs::write(format!("{}/package.yml", install_dir), pointer_yaml)
-        .expect("Failed to write package.yml");
-
-    if let Some(pkg_url) = &pkg.source.package {
-        let out_file = format!("{}/{}.choco.pkg", install_dir, package_name);
-        println!("==> Downloading package: {}", pkg_url);
-
-        let mut curl_args = vec!["--progress-bar", "-L", "-o", &out_file, pkg_url];
-        if insecure {
-            curl_args.insert(0, "--insecure");
+    for pkg in packages {
+        for (_, remote_url) in &remotes {
+            let list = fetch_package_list(remote_url, insecure);
+            if list.contains(&pkg) {
+                let (ptr, meta) = fetch_thread(remote_url, &pkg, insecure);
+                collect_deps(&meta, remote_url, &mut all_to_install, &mut seen, insecure);
+                all_to_install.insert(pkg.clone(), (meta, ptr));
+                break;
+            }
         }
-
-        let status = Command::new("curl")
-            .args(curl_args)
-            .status()
-            .expect("Failed to run curl");
-
-        if !status.success() {
-            eprintln!("✗ curl failed to download package");
-            std::process::exit(1);
-        }
-
-        let status = Command::new("tar")
-            .args(["-xf", &out_file, "-C", &install_dir])
-            .status()
-            .expect("Failed to extract package");
-
-        if !status.success() {
-            eprintln!("✗ tar failed to extract package");
-            std::process::exit(1);
-        }
-
-        let _ = fs::remove_file(&out_file);
     }
 
-    println!("==> Installing {} v{}...", pkg.name, pkg.version);
-    let status = Command::new("sh")
-        .arg("-c")
-        .arg(&pkg.install.commands)
-        .status()
-        .expect("Install script failed");
-
-    if !status.success() {
-        eprintln!("✗ Installation script failed");
-        std::process::exit(1);
+    println!("\n📥 Installing:");
+    for key in all_to_install.keys() {
+        println!("- {}", key);
     }
-
-    println!("🍫  {}: installed v{}", pkg.name, pkg.version);
-}
-
-fn update_package(package_name: &str, insecure: bool) {
-    let dir = format!("/opt/bitey/Chocolaterie/{}", package_name);
-    let pkg_yml = format!("{}/package.yml", dir);
-    let thread_yml = format!("{}/Thread.yml", dir);
-
-    if !PathBuf::from(&pkg_yml).exists() {
-        println!("✗ Package {} not installed", package_name);
+    println!("\n❓ Continue? [Y/n]");
+    if !prompt_confirm("Install the listed packages?", auto_yes) {
+        println!("Aborted.");
         return;
     }
 
-    let pointer_str = fs::read_to_string(&pkg_yml).expect("Failed to read local package.yml");
-    #[derive(Deserialize)]
-    struct Pointer { url: String }
-    let pointer: Pointer = serde_yaml::from_str(&pointer_str).expect("Invalid package.yml format");
-
-    let client = reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(insecure)
-        .build()
-        .expect("HTTP client build failed");
-
-    let new_thread_str = client
-        .get(&pointer.url)
-        .send()
-        .expect("Failed to fetch new Thread.yml")
-        .text()
-        .expect("Failed to read new Thread.yml");
-
-    let new_pkg: PackageYml = serde_yaml::from_str(&new_thread_str).expect("Invalid Thread.yml");
-
-    let local_pkg: Option<PackageYml> = fs::read_to_string(&thread_yml)
-        .ok()
-        .and_then(|s| serde_yaml::from_str(&s).ok());
-
-    let needs_update = match &local_pkg {
-        Some(local) => local.version != new_pkg.version,
-        None => true,
-    };
-
-    if needs_update {
-        println!("⬆️   Updating {} → v{}", package_name, new_pkg.version);
-        install_package(&new_pkg, package_name, insecure, &pointer_str);
-    } else {
-        println!("✔ {} is up to date (v{})", package_name, new_pkg.version);
+    for (name, (pkg, ptr)) in all_to_install {
+        install_package(&pkg, &name, insecure, &ptr);
     }
 }
 
-fn remove_package(package_name: &str) {
-    let install_dir = format!("/opt/bitey/Chocolaterie/{}", package_name);
-
-    if !PathBuf::from(&install_dir).exists() {
-        eprintln!("✗ Package not found: {}", package_name);
-        std::process::exit(1);
-    }
-
-    let status = Command::new("rm")
-        .args(["-rf", &install_dir])
-        .status()
-        .expect("Failed to run rm -rf");
-
-    if status.success() {
-        println!("🗑️  {} removed successfully", package_name);
-    } else {
-        eprintln!("✗ Failed to remove package");
-        std::process::exit(1);
+fn collect_deps(pkg: &PackageYml, remote_url: &str, all: &mut HashMap<String, (PackageYml, String)>, seen: &mut HashSet<String>, insecure: bool) {
+    if let Some(deps) = &pkg.dependencies {
+        for dep in deps {
+            if seen.contains(dep) { continue; }
+            seen.insert(dep.clone());
+            let (ptr, meta) = fetch_thread(remote_url, dep, insecure);
+            collect_deps(&meta, remote_url, all, seen, insecure);
+            all.insert(dep.clone(), (meta, ptr));
+        }
     }
 }
 
-fn add_remote(remote_arg: &str) {
-    let url = if remote_arg.starts_with("ppa:") {
-        let path = remote_arg.trim_start_matches("ppa:");
+fn fetch_package_list(remote_url: &str, insecure: bool) -> Vec<String> {
+    let list_url = format!("{}/list.txt", remote_url);
+    let client = reqwest::blocking::Client::builder().danger_accept_invalid_certs(insecure).build().unwrap();
+    let response = client.get(&list_url).send().unwrap().text().unwrap();
+    response.lines().map(|s| s.to_string()).collect()
+}
+
+fn install_package(pkg: &PackageYml, name: &str, insecure: bool, pointer_yaml: &str) {
+    let install_dir = format!("/opt/bitey/Chocolaterie/{}", name);
+    fs::create_dir_all(&install_dir).unwrap();
+    fs::write(format!("{}/Thread.yml", install_dir), serde_yaml::to_string(pkg).unwrap()).unwrap();
+    fs::write(format!("{}/package.yml", install_dir), pointer_yaml).unwrap();
+
+    if let Some(url) = &pkg.source.package {
+        let out_file = format!("{}/{}.choco.pkg", install_dir, name);
+        let mut args = vec!["--progress-bar", "-L", "-o", &out_file, url];
+        if insecure { args.insert(0, "--insecure"); }
+        Command::new("curl").args(&args).status().unwrap();
+        Command::new("tar").args(["-xf", &out_file, "-C", &install_dir]).status().unwrap();
+        let _ = fs::remove_file(&out_file);
+    }
+
+    Command::new("sh").arg("-c").arg(&pkg.install.commands).status().unwrap();
+    println!("🍫 {}: installed v{}", pkg.name, pkg.version);
+}
+
+fn remove_package(name: &str, auto_yes: bool) {
+    let dir = format!("/opt/bitey/Chocolaterie/{}", name);
+    if !PathBuf::from(&dir).exists() {
+        eprintln!("✗ Package not found: {}", name);
+        return;
+    }
+    println!("\n🗑 Removing:\n- {}", name);
+    if !prompt_confirm("❓ Continue?", auto_yes) {
+        println!("Aborted.");
+        return;
+    }
+    Command::new("rm").args(["-rf", &dir]).status().unwrap();
+    println!("✅ Removed {}");
+}
+
+fn add_remote(arg: &str) {
+    let url = if arg.starts_with("ppa:") {
+        let path = arg.trim_start_matches("ppa:");
         format!("http://ppa.wheedev.org/{}", path)
-    } else {
-        remote_arg.to_string()
-    };
+    } else { arg.to_string() };
 
-    let name = url
-        .replace("http://", "")
-        .replace("https://", "")
-        .replace("/", "_");
-
-    let target_dir = format!("/opt/bitey/Chocobitey/remotes/{}", name);
-    let remote_yml = format!("url: {}\n", url);
-
-    match fs::create_dir_all(&target_dir) {
-        Ok(_) => {
-            let file_path = format!("{}/remote.yml", target_dir);
-            if let Err(e) = fs::write(&file_path, remote_yml) {
-                eprintln!("✗ Failed to write remote.yml: {}", e);
-                std::process::exit(1);
-            }
-            println!("✅ Remote added: {}", url);
-        }
-        Err(e) => {
-            eprintln!("✗ Failed to create remote directory: {}", e);
-            std::process::exit(1);
-        }
-    }
+    let name = url.replace("http://", "").replace("https://", "").replace("/", "_");
+    let dir = format!("/opt/bitey/Chocobitey/remotes/{}", name);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(format!("{}/remote.yml", dir), format!("url: {}\n", url)).unwrap();
+    println!("✅ Remote added: {}", url);
 }
 
 fn main() {
     let cli = Cli::parse();
-
     match &cli.command {
-        Commands::Install { package, insecure } => {
-            let remotes = find_remotes("/opt/bitey/Chocobitey/remotes");
-            for (_remote_name, remote_url) in remotes {
-                let packages = fetch_package_list(&remote_url, *insecure);
-                if packages.contains(package) {
-                    let (pointer, pkg) = fetch_thread_from_pointer(&remote_url, package, *insecure);
-                    install_package(&pkg, package, *insecure, &pointer);
-                    return;
-                }
+        Commands::Install { packages, yes, insecure } => {
+            if packages.is_empty() {
+                println!("🐶 Run 'bitey help' for help!");
+            } else {
+                install_with_deps(packages.clone(), *yes, *insecure);
             }
-            eprintln!("✗ Package not found: {}", package);
-            std::process::exit(1);
-        }
-        Commands::Remove { package } => remove_package(package),
+        },
+        Commands::Remove { package, yes } => remove_package(package, *yes),
         Commands::RemoteAdd { remote } => add_remote(remote),
         Commands::Update { packages, insecure } => {
-            if packages.is_empty() {
-                for entry in fs::read_dir("/opt/bitey/Chocolaterie").unwrap() {
-                    let path = entry.unwrap().path();
-                    if path.is_dir() {
-                        let name = path.file_name().unwrap().to_string_lossy().to_string();
-                        update_package(&name, *insecure);
-                    }
-                }
-            } else {
-                for pkg in packages {
-                    update_package(pkg, *insecure);
-                }
-            }
+            let pkgs = if packages.is_empty() {
+                fs::read_dir("/opt/bitey/Chocolaterie").unwrap().filter_map(Result::ok).map(|e| e.file_name().into_string().unwrap()).collect()
+            } else { packages.clone() };
+            for pkg in pkgs { update_package(&pkg, *insecure); }
+        },
+        Commands::Help => {
+            println!("\n❓ Help:\n\n📦 Packages:\n- install <package> - Install a package.\n- remove <package> - Remove a package.\n- update - Update all packages.\n\n🌐 Remotes:\n- remote-add <url> - Add a remote from URL.\n- remote-add ppa:<profile>/<ppa> - Add a PPA.\n");
         }
+    }
+}
+
+fn update_package(name: &str, insecure: bool) {
+    let dir = format!("/opt/bitey/Chocolaterie/{}", name);
+    let pkg_yml = format!("{}/package.yml", dir);
+    let thread_yml = format!("{}/Thread.yml", dir);
+    if !PathBuf::from(&pkg_yml).exists() {
+        println!("✗ Package {} not installed", name);
+        return;
+    }
+    let pointer_str = fs::read_to_string(&pkg_yml).unwrap();
+    let pointer: serde_yaml::Value = serde_yaml::from_str(&pointer_str).unwrap();
+    let url = pointer["url"].as_str().unwrap();
+    let client = reqwest::blocking::Client::builder().danger_accept_invalid_certs(insecure).build().unwrap();
+    let new_thread_str = client.get(url).send().unwrap().text().unwrap();
+    let new_pkg: PackageYml = serde_yaml::from_str(&new_thread_str).unwrap();
+    let local_pkg: Option<PackageYml> = fs::read_to_string(&thread_yml).ok().and_then(|s| serde_yaml::from_str(&s).ok());
+    let needs_update = local_pkg.map_or(true, |l| l.version != new_pkg.version);
+    if needs_update {
+        println!("⬆️   Updating {} → v{}", name, new_pkg.version);
+        install_package(&new_pkg, name, insecure, &pointer_str);
+    } else {
+        println!("✔ {} is up to date (v{})", name, new_pkg.version);
     }
 }
