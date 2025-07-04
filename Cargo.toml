@@ -5,12 +5,11 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.5.1", features = ["derive"] }
-tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
-reqwest = { version = "0.11", features = ["json", "blocking"] }
 walkdir = "2.4"
 tempfile = "3"
+dialoguer = "0.11"
 
 [[bin]]
 name = "bitey"
