@@ -10,6 +10,7 @@ serde_yaml = "0.9"
 walkdir = "2.4"
 tempfile = "3"
 dialoguer = "0.11"
+reqwest = { version = "0.11", features = ["json", "blocking"] }
 
 [[bin]]
 name = "bitey"
