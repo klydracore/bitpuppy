@@ -21,7 +21,7 @@ struct Package {
     std::string version;
     std::string commands;
     std::string url;
-    std::string root; // added
+    std::string root;
 };
 
 void prompt_help() {
@@ -90,7 +90,7 @@ Package fetch_package(const std::string& pkgname, const std::string& remote) {
     pkg.version = thread["version"].as<std::string>();
     pkg.commands = thread["install"]["commands"].as<std::string>();
     pkg.url = thread["source"]["package"].as<std::string>();
-    pkg.root = pkgname; // <<<< use original YAML name here
+    pkg.root = pkgname;
 
     if (thread["dependencies"]) {
         for (auto dep : thread["dependencies"]) {
@@ -107,7 +107,7 @@ void install_with_deps(const Package& pkg, std::set<std::string>& installed, boo
         if (installed.count(dep)) continue;
         for (const auto& remote : get_remotes()) {
             Package dep_pkg = fetch_package(dep, remote);
-            dep_pkg.root = pkg.root; // <- propagate the root
+            dep_pkg.root = dep;
             install_with_deps(dep_pkg, installed, autoYes);
             break;
         }
@@ -131,7 +131,7 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     fs::path path = "/opt/bitey/Chocolaterie/" + pkg.root;
     if (fs::exists(path)) return;
 
-    std::cout << "\n\U0001F4E5 Installing:\n- " << pkg.name << "\n";
+    std::cout << "\n\U0001F4E5 Installing:\n- " << pkg.root << "\n";
     if (!pkg.dependencies.empty()) {
         std::cout << "\U0001F4DA Dependencies:\n";
         for (const auto& dep : pkg.dependencies) {
@@ -153,7 +153,6 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     std::string cmd = "curl -s -L -o " + file + " " + pkg.url;
     std::system(cmd.c_str());
 
-    // Extract to temp folder then move to final path (fixes absolute paths in archive issues)
     fs::path tmpdir = "/tmp/bitey-extract-" + pkg.root;
     if (fs::exists(tmpdir)) fs::remove_all(tmpdir);
     fs::create_directories(tmpdir);
@@ -161,17 +160,30 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     std::string tar_cmd = "tar -xf " + file + " -C " + tmpdir.string();
     std::system(tar_cmd.c_str());
 
-    // Move contents from tmpdir to final path
+    // Flatten directory structure if needed
+    std::vector<fs::path> entries;
     for (const auto& entry : fs::directory_iterator(tmpdir)) {
-        fs::rename(entry.path(), path / entry.path().filename());
+        entries.push_back(entry);
     }
+
+    if (entries.size() == 1 && fs::is_directory(entries[0])) {
+        for (const auto& subentry : fs::directory_iterator(entries[0])) {
+            fs::rename(subentry.path(), path / subentry.path().filename());
+        }
+        fs::remove_all(entries[0]);
+    } else {
+        for (const auto& entry : entries) {
+            fs::rename(entry, path / entry.filename());
+        }
+    }
+
     fs::remove_all(tmpdir);
     std::remove(file.c_str());
 
     std::system(pkg.commands.c_str());
     for (const auto& dep : pkg.dependencies) save_dependency_record(dep, pkg.name);
 
-    std::cout << "\U0001F36B  " << pkg.name << ": installed v" << pkg.version << "\n";
+    std::cout << "\U0001F36B  " << pkg.root << ": installed v" << pkg.version << "\n";
     installed.insert(pkg.name);
 }
 
@@ -218,7 +230,6 @@ void update_all() {
 }
 
 int main(int argc, char* argv[]) {
-    // Check for lock
     if (fs::exists("/opt/bitey/lock")) {
         if (argc < 2 || std::string(argv[1]) != "unlock") {
             std::cerr << "\u26D4 Bitey is locked. Run 'bitey unlock' to unlock.\n";
@@ -258,7 +269,6 @@ int main(int argc, char* argv[]) {
     } else if (cmd == "update") {
         update_all();
     } else if (cmd == "lock") {
-        // create the lock file
         std::ofstream lockfile("/opt/bitey/lock");
         lockfile << "locked\n";
         lockfile.close();
