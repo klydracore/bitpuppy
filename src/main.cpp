@@ -151,8 +151,14 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     fs::create_directories(path);
     std::string file = path.string() + "/" + pkg.root + "-" + pkg.version + ".choco.pkg";
 
-    std::string cmd = "curl -s -L -o \"" + file + "\" \"" + pkg.url + "\"";
-    std::system(cmd.c_str());
+    std::cout << "🐶 Downloading " << pkg.url << " ...\n";
+    // Use curl with progress bar
+    std::string cmd = "curl --progress-bar -L -o \"" + file + "\" \"" + pkg.url + "\"";
+    int ret = std::system(cmd.c_str());
+    if (ret != 0) {
+        std::cerr << "⚠️ Download failed for " << pkg.root << "\n";
+        return;
+    }
 
     fs::path tmpdir = "/tmp/bitey-extract-" + pkg.root;
     if (fs::exists(tmpdir)) fs::remove_all(tmpdir);
