@@ -149,32 +149,20 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     }
 
     fs::create_directories(path);
-    std::string file = path.string() + "/" + pkg.name + ".choco.pkg";
-    std::string cmd = "curl -s -L -o " + file + " " + pkg.url;
+    std::string file = path.string() + "/" + pkg.root + "-" + pkg.version + ".choco.pkg";
+
+    std::string cmd = "curl -s -L -o \"" + file + "\" \"" + pkg.url + "\"";
     std::system(cmd.c_str());
 
     fs::path tmpdir = "/tmp/bitey-extract-" + pkg.root;
     if (fs::exists(tmpdir)) fs::remove_all(tmpdir);
     fs::create_directories(tmpdir);
 
-    std::string tar_cmd = "tar -xf " + file + " -C " + tmpdir.string();
+    std::string tar_cmd = "tar --strip-components=1 -xf \"" + file + "\" -C \"" + tmpdir.string() + "\"";
     std::system(tar_cmd.c_str());
 
-    // Flatten directory structure if needed
-    std::vector<fs::path> entries;
     for (const auto& entry : fs::directory_iterator(tmpdir)) {
-        entries.push_back(entry);
-    }
-
-    if (entries.size() == 1 && fs::is_directory(entries[0])) {
-        for (const auto& subentry : fs::directory_iterator(entries[0])) {
-            fs::rename(subentry.path(), path / subentry.path().filename());
-        }
-        fs::remove_all(entries[0]);
-    } else {
-        for (const auto& entry : entries) {
-            fs::rename(entry, path / entry.filename());
-        }
+        fs::rename(entry.path(), path / entry.path().filename());
     }
 
     fs::remove_all(tmpdir);
