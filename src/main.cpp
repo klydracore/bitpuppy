@@ -223,6 +223,22 @@ void update_all() {
     }
 }
 
+// Helper: recursively collect all package roots including dependencies
+void collect_packages_with_deps(const Package& pkg, std::set<std::string>& collected, std::vector<Package>& ordered, const std::vector<std::string>& remotes) {
+    if (collected.count(pkg.root)) return;
+    collected.insert(pkg.root);
+    for (const auto& dep : pkg.dependencies) {
+        for (const auto& remote : remotes) {
+            Package dep_pkg = fetch_package(dep, remote);
+            dep_pkg.root = dep;
+            collect_packages_with_deps(dep_pkg, collected, ordered, remotes);
+            break;
+        }
+    }
+    ordered.push_back(pkg);
+}
+
+
 int main(int argc, char* argv[]) {
     if (fs::exists("/opt/bitey/lock")) {
         if (argc < 2 || std::string(argv[1]) != "unlock") {
@@ -251,14 +267,39 @@ int main(int argc, char* argv[]) {
     } else if (cmd == "remove" && !packages.empty()) {
         for (const auto& p : packages) remove_package(p, autoYes);
     } else if (cmd == "install" && !packages.empty()) {
-        std::set<std::string> installed;
+        std::set<std::string> collected_roots;
+        std::vector<Package> ordered_packages;
+        std::vector<std::string> remotes = get_remotes();
+
+        // Collect all packages and dependencies
         for (const auto& pkgname : packages) {
-            for (const auto& remote : get_remotes()) {
+            for (const auto& remote : remotes) {
                 Package pkg = fetch_package(pkgname, remote);
                 pkg.root = pkgname;
-                install_with_deps(pkg, installed, autoYes);
+                collect_packages_with_deps(pkg, collected_roots, ordered_packages, remotes);
                 break;
             }
+        }
+
+        // Print all packages to install in one prompt
+        std::cout << "\n\U0001F4E5 Installing:\n";
+        for (const auto& pkg : ordered_packages) {
+            std::cout << "- " << pkg.root << "\n";
+        }
+        if (!autoYes) {
+            std::string input;
+            std::cout << "\u2753 Continue? [Y/n] ";
+            std::getline(std::cin, input);
+            if (input == "n" || input == "N") {
+                std::cout << "Aborted.\n";
+                return 0;
+            }
+        }
+
+        // Now install all packages in order
+        std::set<std::string> installed;
+        for (const auto& pkg : ordered_packages) {
+            install_package(pkg, installed, true);
         }
     } else if (cmd == "update") {
         update_all();
