@@ -1,5 +1,3 @@
-// Bitey C++ CLI full version (install, remove, remote-add, update, deps)
-
 #include <iostream>
 #include <string>
 #include <vector>
@@ -66,7 +64,7 @@ std::vector<std::string> get_remotes() {
 }
 
 Package fetch_package(const std::string& pkgname, const std::string& remote) {
-    std::string pointer_url = remote + "/" + pkgname + ".yml";
+    std::string pointer_url = remote + "/" + pkgname + ".choco.yml";
     std::string pointer_cmd = "curl -s " + pointer_url;
     std::string pointer_data;
     char buffer[128];
