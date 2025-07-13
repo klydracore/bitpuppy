@@ -43,7 +43,7 @@ void add_remote(const std::string& urlArg) {
 
     std::string name = url;
     for (char& c : name) if (c == '/' || c == ':') c = '_';
-    fs::path dir = "/opt/bitpuppy/Chocobitey/remotes/" + name;
+    fs::path dir = "/opt/bitpuppy/Chocobitpup/remotes/" + name;
     fs::create_directories(dir);
 
     std::ofstream file(dir / "remote.yml");
@@ -55,7 +55,7 @@ void add_remote(const std::string& urlArg) {
 
 std::vector<std::string> get_remotes() {
     std::vector<std::string> urls;
-    for (const auto& entry : fs::directory_iterator("/opt/bitpuppy/Chocobitey/remotes")) {
+    for (const auto& entry : fs::directory_iterator("/opt/bitpuppy/Chocobitpup/remotes")) {
         std::ifstream in(entry.path() / "remote.yml");
         YAML::Node node = YAML::Load(in);
         urls.push_back(node["url"].as<std::string>());
