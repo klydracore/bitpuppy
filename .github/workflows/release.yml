@@ -1,4 +1,4 @@
-name: 🍫 Release Bitey
+name: 🍫 Release BitPuppy
 
 on:
   release:
@@ -38,7 +38,7 @@ jobs:
           cd build
           cmake ..
           make
-          cp bitey ../bin/bitey
+          cp bitpup ../bin/bitpup
 
       - name: Upload Binaries as Artifact
         uses: actions/upload-artifact@v4
