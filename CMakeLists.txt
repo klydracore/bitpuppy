@@ -12,7 +12,7 @@ find_package(nlohmann_json 3.2.0 REQUIRED)
 add_executable(bitpup src/main.cpp)
 
 # Link dependencies
-target_link_libraries(bitey PRIVATE yaml-cpp nlohmann_json::nlohmann_json)
+target_link_libraries(bitpup PRIVATE yaml-cpp nlohmann_json::nlohmann_json)
 
 # Install to /usr/bin if needed
-install(TARGETS bitey RUNTIME DESTINATION bin)
+install(TARGETS bitpup RUNTIME DESTINATION bin)
