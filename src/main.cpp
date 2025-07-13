@@ -31,19 +31,19 @@ void prompt_help() {
               << "- remote-add <url> - Add a remote from URL.\n"
               << "- remote-add ppa:<profile>/<ppa> - Add a PPA.\n\n"
               << "\U0001F512 Locking:\n"
-              << "- lock - Lock bitey (block usage)\n"
-              << "- unlock - Unlock bitey\n\n";
+              << "- lock - Lock BitPuppy (block usage)\n"
+              << "- unlock - Unlock BitPuppy\n\n";
 }
 
 void add_remote(const std::string& urlArg) {
     std::string url = urlArg;
     if (url.starts_with("ppa:")) {
-        url = "http://ppa.wheedev.org/" + url.substr(4);
+        url = "http://ppa.pup.wheedev.org/" + url.substr(4);
     }
 
     std::string name = url;
     for (char& c : name) if (c == '/' || c == ':') c = '_';
-    fs::path dir = "/opt/bitey/Chocobitey/remotes/" + name;
+    fs::path dir = "/opt/bitpuppy/Chocobitey/remotes/" + name;
     fs::create_directories(dir);
 
     std::ofstream file(dir / "remote.yml");
@@ -55,7 +55,7 @@ void add_remote(const std::string& urlArg) {
 
 std::vector<std::string> get_remotes() {
     std::vector<std::string> urls;
-    for (const auto& entry : fs::directory_iterator("/opt/bitey/Chocobitey/remotes")) {
+    for (const auto& entry : fs::directory_iterator("/opt/bitpuppy/Chocobitey/remotes")) {
         std::ifstream in(entry.path() / "remote.yml");
         YAML::Node node = YAML::Load(in);
         urls.push_back(node["url"].as<std::string>());
@@ -114,7 +114,7 @@ void install_with_deps(const Package& pkg, std::set<std::string>& installed, boo
 }
 
 void save_dependency_record(const std::string& dep, const std::string& owner) {
-    fs::path path = "/opt/bitey/Chocolaterie/" + dep + "/dependency.json";
+    fs::path path = "/opt/bitpuppy/Chocolaterie/" + dep + "/dependency.json";
     json j;
     if (fs::exists(path)) {
         std::ifstream in(path);
@@ -126,7 +126,7 @@ void save_dependency_record(const std::string& dep, const std::string& owner) {
 }
 
 void install_package(const Package& pkg, std::set<std::string>& installed, bool autoYes) {
-    fs::path path = "/opt/bitey/Chocolaterie/" + pkg.root;
+    fs::path path = "/opt/bitpuppy/Chocolaterie/" + pkg.root;
     if (fs::exists(path)) return;
 
     std::cout << "\n\U0001F4E5 Installing:\n- " << pkg.root << "\n";
@@ -149,16 +149,15 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     fs::create_directories(path);
     std::string file = path.string() + "/" + pkg.root + "-" + pkg.version + ".choco.pkg";
 
-    std::cout << "🐶 Downloading " << pkg.url << " ...\n";
-    // Use curl with progress bar
+    std::cout << "==> 🐶 Downloading " << pkg.url << " ...\n";
     std::string cmd = "curl --progress-bar -L -o \"" + file + "\" \"" + pkg.url + "\"";
     int ret = std::system(cmd.c_str());
     if (ret != 0) {
-        std::cerr << "⚠️ Download failed for " << pkg.root << "\n";
+        std::cerr << "    ⚠️ Download failed for " << pkg.root << "\n";
         return;
     }
 
-    fs::path tmpdir = "/tmp/bitey-extract-" + pkg.root;
+    fs::path tmpdir = "/tmp/bitpuppy-extract-" + pkg.root;
     if (fs::exists(tmpdir)) fs::remove_all(tmpdir);
     fs::create_directories(tmpdir);
 
@@ -175,12 +174,12 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     std::system(pkg.commands.c_str());
     for (const auto& dep : pkg.dependencies) save_dependency_record(dep, pkg.name);
 
-    std::cout << "\U0001F36B  " << pkg.root << ": installed v" << pkg.version << "\n";
+    std::cout << "    \U0001F36B  " << pkg.root << ": installed v" << pkg.version << "\n";
     installed.insert(pkg.name);
 }
 
 void remove_package(const std::string& name, bool autoYes) {
-    fs::path path = "/opt/bitey/Chocolaterie/" + name;
+    fs::path path = "/opt/bitpuppy/Chocolaterie/" + name;
     if (!fs::exists(path)) {
         std::cerr << "\u2717 Package not found: " << name << "\n";
         return;
@@ -204,13 +203,13 @@ void remove_package(const std::string& name, bool autoYes) {
         }
     }
     fs::remove_all(path);
-    std::cout << "\u2705 Removed " << name << "\n";
+    std::cout << "    \u2705 Removed " << name << "\n";
 }
 
 void update_all() {
-    for (const auto& dir : fs::directory_iterator("/opt/bitey/Chocolaterie")) {
+    for (const auto& dir : fs::directory_iterator("/opt/bitpuppy/Chocolaterie")) {
         std::string name = dir.path().filename().string();
-        std::cout << "⬆️  Updating " << name << "...\n";
+        std::cout << "    ⬆️  Updating " << name << "...\n";
         for (const auto& remote : get_remotes()) {
             Package pkg = fetch_package(name, remote);
             pkg.root = name;
@@ -221,7 +220,6 @@ void update_all() {
     }
 }
 
-// Helper: recursively collect all package roots including dependencies
 void collect_packages_with_deps(const Package& pkg, std::set<std::string>& collected, std::vector<Package>& ordered, const std::vector<std::string>& remotes) {
     if (collected.count(pkg.root)) return;
     collected.insert(pkg.root);
@@ -236,19 +234,19 @@ void collect_packages_with_deps(const Package& pkg, std::set<std::string>& colle
     ordered.push_back(pkg);
 }
 
-
 int main(int argc, char* argv[]) {
-    if (fs::exists("/opt/bitey/lock")) {
+    if (fs::exists("/opt/bitpuppy/lock")) {
         if (argc < 2 || std::string(argv[1]) != "unlock") {
-            std::cerr << "\u26D4 Bitey is locked. Run 'bitey unlock' to unlock.\n";
+            std::cerr << "\u26D4 BitPuppy is locked. Run 'bitpup unlock' to unlock.\n";
             return 1;
         }
     }
 
     if (argc < 2) {
-        std::cout << "\U0001F436 Run 'bitey help' for help!\n";
+        std::cout << "\U0001F436 Run 'bitpup help' for help!\n";
         return 0;
     }
+
     std::string cmd = argv[1];
     bool autoYes = false;
     std::vector<std::string> packages;
@@ -269,7 +267,6 @@ int main(int argc, char* argv[]) {
         std::vector<Package> ordered_packages;
         std::vector<std::string> remotes = get_remotes();
 
-        // Collect all packages and dependencies
         for (const auto& pkgname : packages) {
             for (const auto& remote : remotes) {
                 Package pkg = fetch_package(pkgname, remote);
@@ -279,7 +276,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Print all packages to install in one prompt
         std::cout << "\n\U0001F4E5 Installing:\n";
         for (const auto& pkg : ordered_packages) {
             std::cout << "- " << pkg.root << "\n";
@@ -294,7 +290,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Now install all packages in order
         std::set<std::string> installed;
         for (const auto& pkg : ordered_packages) {
             install_package(pkg, installed, true);
@@ -302,21 +297,22 @@ int main(int argc, char* argv[]) {
     } else if (cmd == "update") {
         update_all();
     } else if (cmd == "lock") {
-        std::ofstream lockfile("/opt/bitey/lock");
+        std::ofstream lockfile("/opt/bitpuppy/lock");
         lockfile << "locked\n";
         lockfile.close();
-        std::cout << "\U0001F512 Bitey locked.\n";
+        std::cout << "\U0001F512 BitPuppy locked.\n";
     } else if (cmd == "unlock") {
-        if (fs::exists("/opt/bitey/lock")) {
-            fs::remove("/opt/bitey/lock");
-            std::cout << "\U0001F513 Bitey unlocked.\n";
+        if (fs::exists("/opt/bitpuppy/lock")) {
+            fs::remove("/opt/bitpuppy/lock");
+            std::cout << "\U0001F513 BitPuppy unlocked.\n";
         } else {
-            std::cout << "Bitey was not locked.\n";
+            std::cout << "BitPuppy was not locked.\n";
         }
     } else {
         std::cerr << "\u274C Error: '" << cmd << "' is not a valid option.\n";
         std::cout << "\u2753 Maybe you meant 'install'?\n";
-        std::cout << "\U0001F436 Run 'bitey help' for help!\n";
+        std::cout << "\U0001F436 Run 'bitpup help' for help!\n";
     }
+
     return 0;
 }
