@@ -155,7 +155,7 @@ void save_dependency_record(const std::string& dep, const std::string& owner) {
 }
 
 void install_package(const Package& pkg, std::set<std::string>& installed, bool autoYes) {
-    fs::path path = "/opt/bitpuppy/Chocolaterie/" + pkg.root;
+    fs::path path = fs::path(root) / "opt/bitpuppy/Chocolaterie" / pkg.root;
     if (fs::exists(path)) return;
 
     std::cout << "\n\U0001F4E5 Installing:\n- " << pkg.root << "\n";
@@ -200,7 +200,12 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     fs::remove_all(tmpdir);
     std::remove(file.c_str());
 
-    std::system(pkg.commands.c_str());
+    std::string run_cmd = pkg.commands;
+    size_t pos;
+    while ((pos = run_cmd.find("$ROOT")) != std::string::npos) {
+        run_cmd.replace(pos, 5, (root == "/" ? "" : root));
+    }
+    std::system(run_cmd.c_str());
     for (const auto& dep : pkg.dependencies) save_dependency_record(dep, pkg.name);
 
     std::cout << "    \U0001F36B  " << pkg.root << ": installed v" << pkg.version << "\n";
@@ -278,10 +283,12 @@ int main(int argc, char* argv[]) {
 
     std::string cmd = argv[1];
     bool autoYes = false;
+    std::string root = "/";  // Default root
     std::vector<std::string> packages;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-y") autoYes = true;
+        else if (arg.rfind("--root=", 0) == 0) root = arg.substr(7);
         else packages.push_back(arg);
     }
 
