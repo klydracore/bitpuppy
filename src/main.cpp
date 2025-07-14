@@ -288,7 +288,12 @@ int main(int argc, char* argv[]) {
     if (cmd == "help") {
         prompt_help();
     } else if (cmd == "remote-add" && !packages.empty()) {
-        add_remote(packages[0]);
+        std::string url = packages[0];
+        std::string name = "default";
+        std::vector<std::string> channels;
+        if (packages.size() >= 2) name = packages[1];
+        if (packages.size() > 2) channels.assign(packages.begin() + 2, packages.end());
+        add_remote(url, name, channels);
     } else if (cmd == "remove" && !packages.empty()) {
         for (const auto& p : packages) remove_package(p, autoYes);
     } else if (cmd == "install" && !packages.empty()) {
