@@ -35,30 +35,59 @@ void prompt_help() {
               << "- unlock - Unlock BitPuppy\n\n";
 }
 
-void add_remote(const std::string& urlArg) {
-    std::string url = urlArg;
-    if (url.starts_with("ppa:")) {
-        url = "http://ppa.pup.wheedev.org/" + url.substr(4);
-    }
-
-    std::string name = url;
-    for (char& c : name) if (c == '/' || c == ':') c = '_';
+void add_remote(const std::string& urlArg, const std::string& name, const std::vector<std::string>& channels) {
     fs::path dir = "/opt/bitpuppy/Chocobitpup/remotes/" + name;
     fs::create_directories(dir);
 
-    std::ofstream file(dir / "remote.yml");
-    file << "url: " << url << "\n";
-    file.close();
+    std::ofstream list(dir / "remote.choco.list", std::ios::app);
+    list << "choco " << urlArg << " " << name;
+    for (const auto& c : channels) list << " " << c;
+    list << "\n";
 
-    std::cout << "\u2705 Remote added: " << url << "\n";
+    std::cout << "\u2705 Remote added to " << dir << "\n";
+}
+
+std::string detect_arch() {
+    std::string result;
+    FILE* pipe = popen("uname -m", "r");
+    if (!pipe) return "unknown";
+    char buffer[64];
+    while (fgets(buffer, sizeof buffer, pipe) != nullptr) result += buffer;
+    pclose(pipe);
+
+    // trim newline
+    result.erase(result.find_last_not_of(" \n\r\t")+1);
+    if (result == "x86_64") return "amd64";
+    if (result == "aarch64") return "arm64";
+    if (result == "armv7l") return "armhf";
+    return result;
 }
 
 std::vector<std::string> get_remotes() {
     std::vector<std::string> urls;
-    for (const auto& entry : fs::directory_iterator("/opt/bitpuppy/Chocobitpup/remotes")) {
-        std::ifstream in(entry.path() / "remote.yml");
-        YAML::Node node = YAML::Load(in);
-        urls.push_back(node["url"].as<std::string>());
+    std::string arch = detect_arch();
+
+    fs::path root = "/opt/bitpuppy/Chocobitpup/remotes";
+    if (!fs::exists(root)) return urls;
+
+    for (const auto& entry : fs::recursive_directory_iterator(root)) {
+        if (entry.path().filename() != "remote.choco.list") continue;
+
+        std::ifstream in(entry.path());
+        std::string line;
+        while (std::getline(in, line)) {
+            std::istringstream iss(line);
+            std::string type, base, pool;
+            iss >> type >> base >> pool;
+
+            if (type != "choco" || base.empty() || pool.empty()) continue;
+
+            std::string channel;
+            while (iss >> channel) {
+                std::string full_url = base + "/pool/" + pool + "/" + arch + "/" + channel;
+                urls.push_back(full_url);
+            }
+        }
     }
     return urls;
 }
