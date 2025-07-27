@@ -11,8 +11,8 @@
 #include <nlohmann/json.hpp>
 
 const std::string BASE_DIR = "/bit";
-fs::path base = BASE_DIR;
 namespace fs = std::filesystem;
+fs::path base = BASE_DIR;
 using json = nlohmann::json;
 
 struct Package {
