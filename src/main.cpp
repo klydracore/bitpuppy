@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 const std::string BASE_DIR = "/bit";
+std::string root = "";
 namespace fs = std::filesystem;
 fs::path base = BASE_DIR;
 using json = nlohmann::json;
@@ -157,7 +158,7 @@ void save_dependency_record(const std::string& dep, const std::string& owner) {
 }
 
 void install_package(const Package& pkg, std::set<std::string>& installed, bool autoYes) {
-    fs::path path = "/bit/Chocolaterie" / pkg.root;
+    fs::path path = fs::path("/bit/Chocolaterie") / pkg.root;
     if (fs::exists(path)) return;
 
     std::cout << "\n\U0001F4E5 Installing:\n- " << pkg.root << "\n";
