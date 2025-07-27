@@ -157,7 +157,7 @@ void save_dependency_record(const std::string& dep, const std::string& owner) {
 }
 
 void install_package(const Package& pkg, std::set<std::string>& installed, bool autoYes) {
-    fs::path path = fs::path(root) / "bit/Chocolaterie" / pkg.root;
+    fs::path path = "/bit/Chocolaterie" / pkg.root;
     if (fs::exists(path)) return;
 
     std::cout << "\n\U0001F4E5 Installing:\n- " << pkg.root << "\n";
