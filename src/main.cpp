@@ -10,6 +10,8 @@
 #include <yaml-cpp/yaml.h>
 #include <nlohmann/json.hpp>
 
+const std::string BASE_DIR = "/bit";
+fs::path base = BASE_DIR;
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
@@ -36,7 +38,7 @@ void prompt_help() {
 }
 
 void add_remote(const std::string& urlArg, const std::string& name, const std::vector<std::string>& channels) {
-    fs::path dir = "/opt/bitpuppy/Chocobitpup/remotes/" + name;
+    fs::path dir = "/bit/Chocobitpup/remotes/" + name;
     fs::create_directories(dir);
 
     std::ofstream list(dir / "remote.choco.list", std::ios::app);
@@ -67,7 +69,7 @@ std::vector<std::string> get_remotes() {
     std::vector<std::string> urls;
     std::string arch = detect_arch();
 
-    fs::path root = "/opt/bitpuppy/Chocobitpup/remotes";
+    fs::path root = "/bit/Chocobitpup/remotes";
     if (!fs::exists(root)) return urls;
 
     for (const auto& entry : fs::recursive_directory_iterator(root)) {
@@ -143,7 +145,7 @@ void install_with_deps(const Package& pkg, std::set<std::string>& installed, boo
 }
 
 void save_dependency_record(const std::string& dep, const std::string& owner) {
-    fs::path path = "/opt/bitpuppy/Chocolaterie/" + dep + "/dependency.json";
+    fs::path path = "/bit/Chocolaterie/" + dep + "/dependency.json";
     json j;
     if (fs::exists(path)) {
         std::ifstream in(path);
@@ -155,7 +157,7 @@ void save_dependency_record(const std::string& dep, const std::string& owner) {
 }
 
 void install_package(const Package& pkg, std::set<std::string>& installed, bool autoYes) {
-    fs::path path = fs::path(root) / "opt/bitpuppy/Chocolaterie" / pkg.root;
+    fs::path path = fs::path(root) / "bit/Chocolaterie" / pkg.root;
     if (fs::exists(path)) return;
 
     std::cout << "\n\U0001F4E5 Installing:\n- " << pkg.root << "\n";
@@ -213,7 +215,7 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
 }
 
 void remove_package(const std::string& name, bool autoYes) {
-    fs::path path = "/opt/bitpuppy/Chocolaterie/" + name;
+    fs::path path = "/bit/Chocolaterie/" + name;
     if (!fs::exists(path)) {
         std::cerr << "\u2717 Package not found: " << name << "\n";
         return;
@@ -241,7 +243,7 @@ void remove_package(const std::string& name, bool autoYes) {
 }
 
 void update_all() {
-    for (const auto& dir : fs::directory_iterator("/opt/bitpuppy/Chocolaterie")) {
+    for (const auto& dir : fs::directory_iterator("/bit/Chocolaterie")) {
         std::string name = dir.path().filename().string();
         std::cout << "    ⬆️  Updating " << name << "...\n";
         for (const auto& remote : get_remotes()) {
@@ -269,7 +271,7 @@ void collect_packages_with_deps(const Package& pkg, std::set<std::string>& colle
 }
 
 int main(int argc, char* argv[]) {
-    if (fs::exists("/opt/bitpuppy/lock")) {
+    if (fs::exists("/bit/lock")) {
         if (argc < 2 || std::string(argv[1]) != "unlock") {
             std::cerr << "\u26D4 BitPuppy is locked. Run 'bitpup unlock' to unlock.\n";
             return 1;
@@ -349,6 +351,8 @@ int main(int argc, char* argv[]) {
         } else {
             std::cout << "BitPuppy was not locked.\n";
         }
+    } else if (cmd == "version") {
+        std::cerr << "🍫 BitPuppy 3.1.1 \n";
     } else {
         std::cerr << "\u274C Error: '" << cmd << "' is not a valid option.\n";
         std::cout << "\u2753 Maybe you meant 'install'?\n";
