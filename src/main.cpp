@@ -181,11 +181,10 @@ void install_package(const Package& pkg, std::set<std::string>& installed, bool 
     fs::create_directories(path);
     std::string file = path.string() + "/" + pkg.root + "-" + pkg.version + ".choco.pkg";
 
-    std::cout << "==> 🐶 Downloading " << pkg.url << " ...\n";
     std::string cmd = "wget --quiet --show-progress -O \"" + file + "\" \"" + pkg.url + "\"";
     int ret = std::system(cmd.c_str());
     if (ret != 0) {
-        std::cerr << "    ⚠️ Download failed for " << pkg.root << "\n";
+        std::cerr << "⚠️ Download failed for " << pkg.root << "\n";
         return;
     }
 
