@@ -335,6 +335,14 @@ int main(int argc, char* argv[]) {
 
         std::set<std::string> installed;
         for (const auto& pkg : ordered_packages) {
+            fs::path installPath = fs::path("/bit/Chocolaterie") / pkg.root;
+            if (!fs::exists(installPath)) {
+                fs::path dataPath = fs::path("/bit/data") / pkg.root;
+                if (!fs::exists(dataPath)) {
+                    fs::create_directories(dataPath);
+                }
+            }
+            
             install_package(pkg, installed, true);
         }
     } else if (cmd == "update") {
