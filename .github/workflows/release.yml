@@ -19,7 +19,7 @@ jobs:
         run: echo "commit=${{ github.sha }}" >> $GITHUB_OUTPUT
 
   build:
-    name: 🏗️ Build (C++)
+    name: 🏗️ Build
     needs: checkout
     runs-on: ubuntu-latest
     steps:
