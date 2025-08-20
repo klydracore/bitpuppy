@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <libgen.h>
+#include <limits.h>
+
 
 #include <yaml.h>
 #include <jansson.h>
