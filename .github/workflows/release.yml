@@ -29,7 +29,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y cmake g++ libyaml-cpp-dev nlohmann-json3-dev
+          sudo apt install -y libyaml-dev libjson-c-dev
 
       - name: Build with CMake
         run: |
