@@ -29,7 +29,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y libyaml-dev libjson-c-dev
+          sudo apt install -y libyaml-dev libjansson-dev
 
       - name: Build with CMake
         run: |
