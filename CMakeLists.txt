@@ -25,4 +25,3 @@ target_link_libraries(bitpup PRIVATE
     ${LIBYAML_LIBRARIES}
     ${JANSSON_LIBRARIES}
 )
-s
