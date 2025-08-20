@@ -14,10 +14,16 @@ pkg_check_modules(JSONC REQUIRED json-c)
 # Source files
 add_executable(bitpup src/main.c)
 
-# Include directories
+# Add include directories
 target_include_directories(bitpup PRIVATE
     ${LIBYAML_INCLUDE_DIRS}
     ${JSONC_INCLUDE_DIRS}
+)
+
+# Add library search paths
+target_link_directories(bitpup PRIVATE
+    ${LIBYAML_LIBRARY_DIRS}
+    ${JSONC_LIBRARY_DIRS}
 )
 
 # Link libraries
