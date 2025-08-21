@@ -29,7 +29,7 @@ typedef struct {
     int dep_count;
 } Package;
 
-static char g_root_override[PATH_MAX] = "/"; // --root=...
+static char g_root_override[PATH_MAX] = "/";
 static int g_auto_yes = 0;
 
 /* ----------------------------- utils ------------------------------ */
@@ -132,15 +132,24 @@ static const char *detect_arch(){
 
 /* --------------------------- YAML parse --------------------------- */
 
-static int yaml_get_scalar_value(yaml_parser_t *parser, char *out, size_t outsz){
-    yaml_event_t event;
-    if(!yaml_parser_parse(parser, &event)) return 0;
+static int yaml_find_url(const char *yaml_text, char *out, size_t outsz){
+    yaml_parser_t parser; yaml_event_t event;
+    if(!yaml_parser_initialize(&parser)) return 0;
+    yaml_parser_set_input_string(&parser, (const unsigned char*)yaml_text, strlen(yaml_text));
+
+    char key[128] = "";
     int ok = 0;
-    if(event.type == YAML_SCALAR_EVENT){
-        snprintf(out, outsz, "%s", (const unsigned char*)event.data.scalar.value);
-        ok = 1;
+    while(yaml_parser_parse(&parser, &event)){
+        if(event.type == YAML_STREAM_END_EVENT){ yaml_event_delete(&event); break; }
+        if(event.type == YAML_SCALAR_EVENT){
+            const char *v = (const char*)event.data.scalar.value;
+            if(key[0]==0){ snprintf(key,sizeof(key),"%s", v); }
+            else if(strcmp(key,"url")==0){ snprintf(out,outsz,"%s",v); ok=1; yaml_event_delete(&event); break; }
+            else key[0]=0;
+        }
+        yaml_event_delete(&event);
     }
-    yaml_event_delete(&event);
+    yaml_parser_delete(&parser);
     return ok;
 }
 
@@ -195,29 +204,6 @@ static int parse_thread_yaml(const char *yaml_text, Package *pkg){
     return 1;
 }
 
-static int yaml_find_url(const char *yaml_text, char *out, size_t outsz){
-    yaml_parser_t parser; yaml_event_t event;
-    if(!yaml_parser_initialize(&parser)) return 0;
-    yaml_parser_set_input_string(&parser, (const unsigned char*)yaml_text, strlen(yaml_text));
-
-    char key[128] = "";
-    int ok = 0;
-    while(yaml_parser_parse(&parser, &event)){
-        if(event.type == YAML_STREAM_END_EVENT){ yaml_event_delete(&event); break; }
-        if(event.type == YAML_SCALAR_EVENT){
-            const char *v = (const char*)event.data.scalar.value;
-            if(key[0]==0){ snprintf(key,sizeof(key),"%s", v); }
-            else if(strcmp(key,"url")==0){ snprintf(out,outsz,"%s",v); ok=1; yaml_event_delete(&event); break; }
-            else key[0]=0;
-        }
-        yaml_event_delete(&event);
-    }
-    yaml_parser_delete(&parser);
-    return ok;
-}
-
-/* -------------------------- package I/O --------------------------- */
-
 static int fetch_package(const char *pkgname, const char *remote, Package *out_pkg){
     char pointer_url[2048];
     snprintf(pointer_url,sizeof(pointer_url), "%s/%s.choco.yml", remote, pkgname);
@@ -259,7 +245,6 @@ static int install_package(Package *pkg){
 
     char file[PATH_MAX]; snprintf(file,sizeof(file), "%s/%s.choco.pkg", install_dir, pkg->root);
 
-    // download package
     if(run_cmd("wget --quiet --show-progress -O \"%s\" \"%s\"", file, pkg->url)!=0){ fprintf(stderr,"Download failed: %s\n", pkg->url); return 1; }
 
     char tmpdir[PATH_MAX]; snprintf(tmpdir,sizeof(tmpdir),"/tmp/bitpuppy-extract-%s", pkg->root);
@@ -268,16 +253,132 @@ static int install_package(Package *pkg){
 
     if(run_cmd("tar --strip-components=1 -xf \"%s\" -C \"%s\"", file,tmpdir)!=0){ fprintf(stderr,"Extraction failed\n"); run_cmd("rm -rf \"%s\"", tmpdir); unlink(file); return 1; }
 
-    // move
     run_cmd("sh -c 'set -e; for f in \"%s\"/*; do mv \"$f\" \"%s\"/; done'", tmpdir, install_dir);
-
     run_cmd("rm -rf \"%s\"", tmpdir); unlink(file);
 
-    // run commands
     char cmds[MAX_STR]; snprintf(cmds,sizeof(cmds),"%s",pkg->commands);
     replace_all(cmds,sizeof(cmds),"$ROOT",(strcmp(g_root_override,"/")==0)? "" : g_root_override);
     run_cmd("%s", cmds);
 
+    // create data folder
+    char data_dir[PATH_MAX];
+    snprintf(data_dir,sizeof(data_dir), "%s/data/%s", BASE_DIR, pkg->root);
+    mkpath(data_dir,0755);
+
     printf("    %s: installed v%s\n", pkg->root, pkg->version);
     return 0;
+}
+
+static int remove_package(const char *pkgname){
+    char path[PATH_MAX], data[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/Chocolaterie/%s", BASE_DIR, pkgname);
+    snprintf(data, sizeof(data), "%s/data/%s", BASE_DIR, pkgname);
+    if(!path_exists(path)){
+        fprintf(stderr,"Package not installed: %s\n", pkgname);
+        return 1;
+    }
+    run_cmd("rm -rf \"%s\"", path);
+    run_cmd("rm -rf \"%s\"", data);
+    printf("Package %s removed\n", pkgname);
+    return 0;
+}
+
+static int update_all_packages(){
+    char choco_dir[PATH_MAX];
+    snprintf(choco_dir,sizeof(choco_dir),"%s/Chocolaterie", BASE_DIR);
+    DIR *d = opendir(choco_dir);
+    if(!d) return 0;
+    struct dirent *entry;
+    while((entry=readdir(d))){
+        if(entry->d_name[0]=='.') continue;
+        Package pkg;
+        if(fetch_package(entry->d_name,"https://example-remote.com",&pkg)){
+            install_package(&pkg);
+        }
+    }
+    closedir(d);
+    return 0;
+}
+
+static int add_remote(const char *url, const char *name){
+    char remfile[PATH_MAX]; snprintf(remfile,sizeof(remfile),"%s/remotes.json", BASE_DIR);
+    json_t *root = NULL;
+    json_error_t err;
+    if(path_exists(remfile)){
+        root = json_load_file(remfile,0,&err);
+        if(!root) root=json_object();
+    } else root=json_object();
+
+    json_t *remote = json_object();
+    json_object_set_new(remote,"url",json_string(url));
+    if(name) json_object_set_new(remote,"name",json_string(name));
+    json_object_set_new(root,url,remote);
+    json_dump_file(root,remfile,JSON_INDENT(2));
+    json_decref(root);
+    printf("Remote %s added\n",url);
+    return 0;
+}
+
+/* ----------------------- main CLI ---------------------- */
+
+static void print_help() {
+    printf("BitPuppy CLI Help:\n\n");
+    printf("Packages:\n");
+    printf("  install <package>     Install a package.\n");
+    printf("  remove <package>      Remove a package.\n");
+    printf("  update                Update all packages.\n\n");
+    printf("Remotes:\n");
+    printf("  remote-add <url> [name] [channels...]  Add a remote from URL.\n");
+    printf("  remote-add ppa:<profile>/<ppa>         Add a PPA.\n\n");
+    printf("Locking:\n");
+    printf("  lock                  Lock BitPuppy (block usage)\n");
+    printf("  unlock                Unlock BitPuppy\n\n");
+    printf("Options:\n");
+    printf("  --yes                 Automatic yes for prompts\n");
+}
+
+int main(int argc, char **argv) {
+    if(argc < 2) { print_help(); return 1; }
+
+    for(int i = 1; i < argc; i++)
+        if(strcmp(argv[i],"--yes")==0) g_auto_yes=1;
+
+    // lock check
+    char lock_file[PATH_MAX]; snprintf(lock_file,sizeof(lock_file),"%s/lock",BASE_DIR);
+
+    if(path_exists(lock_file)){
+        if(strcmp(argv[1],"unlock")!=0){
+            fprintf(stderr,"BitPuppy is locked. Unlock first.\n");
+            return 1;
+        }
+    }
+
+    const char *cmd = argv[1];
+
+    if(strcmp(cmd,"help")==0){ print_help(); return 0; }
+    if(strcmp(cmd,"install")==0 && argc>=3){ 
+        Package pkg;
+        if(!fetch_package(argv[2],"https://example-remote.com",&pkg)){ fprintf(stderr,"Failed to fetch package: %s\n",argv[2]); return 1; }
+        return install_package(&pkg);
+    }
+    if(strcmp(cmd,"remove")==0 && argc>=3) return remove_package(argv[2]);
+    if(strcmp(cmd,"update")==0) return update_all_packages();
+    if(strcmp(cmd,"remote-add")==0 && argc>=3){
+        const char *name = argc>=4?argv[3]:NULL;
+        return add_remote(argv[2],name);
+    }
+    if(strcmp(cmd,"lock")==0){
+        FILE *f = fopen(lock_file,"w"); if(f){ fputs("locked",f); fclose(f); }
+        printf("BitPuppy locked\n");
+        return 0;
+    }
+    if(strcmp(cmd,"unlock")==0){
+        unlink(lock_file);
+        printf("BitPuppy unlocked\n");
+        return 0;
+    }
+
+    fprintf(stderr,"Unknown command: %s\n",cmd);
+    print_help();
+    return 1;
 }
