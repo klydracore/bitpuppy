@@ -101,7 +101,7 @@ static int run_cmd(const char *fmt, ...){
 static void replace_all(char *s, size_t s_cap, const char *needle, const char *with){
     if(!s || !needle || !with) return;
     char out[8192]; out[0] = 0;
-    size_t nlen = strlen(needle), wlen = strlen(with);
+    size_t nlen = strlen(needle);
     const char *cur = s;
     while(*cur){
         const char *p = strstr(cur, needle);
@@ -204,30 +204,90 @@ static int parse_thread_yaml(const char *yaml_text, Package *pkg){
     return 1;
 }
 
-static int fetch_package(const char *pkgname, const char *remote, Package *out_pkg){
-    char pointer_url[2048];
-    snprintf(pointer_url,sizeof(pointer_url), "%s/%s.choco.yml", remote, pkgname);
+/* ----------------------- remote logic ---------------------- */
 
-    char cmd[4096];
-    snprintf(cmd,sizeof(cmd),"curl -s \"%s\"", pointer_url);
-    char *pointer_data = read_cmd_stdout(cmd);
-    if(!pointer_data || pointer_data[0]=='\0'){ if(pointer_data) free(pointer_data); return 0; }
+static int fetch_package_from_remotes(const char *pkgname, Package *out_pkg){
+    const char *arch = detect_arch();
+    char remdir[PATH_MAX];
+    snprintf(remdir,sizeof(remdir), "%s/Chocolaterie/remotes", BASE_DIR);
 
-    char thread_url[MAX_STR] = {0};
-    if(!yaml_find_url(pointer_data, thread_url, sizeof(thread_url))){ free(pointer_data); return 0; }
-    free(pointer_data);
+    DIR *d = opendir(remdir);
+    if(!d) return 0;
+    struct dirent *entry;
+    int found = 0;
 
-    snprintf(cmd,sizeof(cmd),"curl -s \"%s\"", thread_url);
-    char *thread_data = read_cmd_stdout(cmd);
-    if(!thread_data || thread_data[0]=='\0'){ if(thread_data) free(thread_data); return 0; }
+    while((entry=readdir(d))){
+        if(entry->d_name[0]=='.') continue;
 
-    memset(out_pkg,0,sizeof(*out_pkg));
-    out_pkg->dep_count=0;
-    if(!parse_thread_yaml(thread_data, out_pkg)){ free(thread_data); return 0; }
-    snprintf(out_pkg->root,sizeof(out_pkg->root),"%s", pkgname);
+        char listfile[PATH_MAX];
+        if(entry->d_type == DT_DIR){
+            snprintf(listfile,sizeof(listfile),"%s/%s/remote.choco.list", remdir, entry->d_name);
+        } else snprintf(listfile,sizeof(listfile),"%s/%s", remdir, entry->d_name);
 
-    free(thread_data);
-    return 1;
+        if(!path_exists(listfile)) continue;
+
+        FILE *f = fopen(listfile,"r");
+        if(!f) continue;
+
+        char line[1024];
+        while(fgets(line,sizeof(line),f)){
+            char *l = trim(line);
+            if(l[0]==0 || l[0]=='#') continue;
+
+            char type[32], remote[1024], pool[128], channels[256];
+            if(sscanf(l,"%31s %1023s %127s %255[^\n]", type, remote, pool, channels) < 4) continue;
+            if(strcmp(type,"choco")!=0) continue;
+
+            char *ch = strtok(channels," ");
+            while(ch){
+                char listtxt[PATH_MAX];
+                snprintf(listtxt,sizeof(listtxt),"%s/pool/%s/%s/%s/list.txt", remote, pool, arch, ch);
+                if(!path_exists(listtxt)){ ch=strtok(NULL," "); continue; }
+
+                FILE *lf = fopen(listtxt,"r");
+                if(!lf){ ch=strtok(NULL," "); continue; }
+
+                char pkgline[256];
+                while(fgets(pkgline,sizeof(pkgline),lf)){
+                    if(strncmp(pkgline,pkgname,strlen(pkgname))==0){
+                        fclose(lf);
+
+                        char ymlfile[PATH_MAX];
+                        snprintf(ymlfile,sizeof(ymlfile),"%s/pool/%s/%s/%s/%s.choco.yml", remote, pool, arch, ch, pkgname);
+                        if(!path_exists(ymlfile)) break;
+
+                        FILE *yf = fopen(ymlfile,"r");
+                        if(!yf) break;
+                        char *yaml_text = (char*)malloc(8192);
+                        if(!yaml_text){ fclose(yf); break; }
+                        size_t readsz = fread(yaml_text,1,8191,yf);
+                        yaml_text[readsz]='\0';
+                        fclose(yf);
+
+                        char url[MAX_STR] = {0};
+                        if(!yaml_find_url(yaml_text,url,sizeof(url))){ free(yaml_text); break; }
+                        free(yaml_text);
+
+                        memset(out_pkg,0,sizeof(*out_pkg));
+                        out_pkg->dep_count = 0;
+                        snprintf(out_pkg->root,sizeof(out_pkg->root),"%s",pkgname);
+                        snprintf(out_pkg->url,sizeof(out_pkg->url),"%s",url);
+                        found = 1;
+                        break;
+                    }
+                }
+                if(found) break;
+                ch=strtok(NULL," ");
+            }
+            if(found) break;
+        }
+
+        fclose(f);
+        if(found) break;
+    }
+
+    closedir(d);
+    return found;
 }
 
 /* ----------------------- installation logic ---------------------- */
@@ -260,7 +320,6 @@ static int install_package(Package *pkg){
     replace_all(cmds,sizeof(cmds),"$ROOT",(strcmp(g_root_override,"/")==0)? "" : g_root_override);
     run_cmd("%s", cmds);
 
-    // create data folder
     char data_dir[PATH_MAX];
     snprintf(data_dir,sizeof(data_dir), "%s/data/%s", BASE_DIR, pkg->root);
     mkpath(data_dir,0755);
@@ -292,30 +351,11 @@ static int update_all_packages(){
     while((entry=readdir(d))){
         if(entry->d_name[0]=='.') continue;
         Package pkg;
-        if(fetch_package(entry->d_name,"https://example-remote.com",&pkg)){
+        if(fetch_package_from_remotes(entry->d_name,&pkg)){
             install_package(&pkg);
         }
     }
     closedir(d);
-    return 0;
-}
-
-static int add_remote(const char *url, const char *name){
-    char remfile[PATH_MAX]; snprintf(remfile,sizeof(remfile),"%s/remotes.json", BASE_DIR);
-    json_t *root = NULL;
-    json_error_t err;
-    if(path_exists(remfile)){
-        root = json_load_file(remfile,0,&err);
-        if(!root) root=json_object();
-    } else root=json_object();
-
-    json_t *remote = json_object();
-    json_object_set_new(remote,"url",json_string(url));
-    if(name) json_object_set_new(remote,"name",json_string(name));
-    json_object_set_new(root,url,remote);
-    json_dump_file(root,remfile,JSON_INDENT(2));
-    json_decref(root);
-    printf("Remote %s added\n",url);
     return 0;
 }
 
@@ -343,9 +383,7 @@ int main(int argc, char **argv) {
     for(int i = 1; i < argc; i++)
         if(strcmp(argv[i],"--yes")==0) g_auto_yes=1;
 
-    // lock check
     char lock_file[PATH_MAX]; snprintf(lock_file,sizeof(lock_file),"%s/lock",BASE_DIR);
-
     if(path_exists(lock_file)){
         if(strcmp(argv[1],"unlock")!=0){
             fprintf(stderr,"BitPuppy is locked. Unlock first.\n");
@@ -358,15 +396,11 @@ int main(int argc, char **argv) {
     if(strcmp(cmd,"help")==0){ print_help(); return 0; }
     if(strcmp(cmd,"install")==0 && argc>=3){ 
         Package pkg;
-        if(!fetch_package(argv[2],"https://example-remote.com",&pkg)){ fprintf(stderr,"Failed to fetch package: %s\n",argv[2]); return 1; }
+        if(!fetch_package_from_remotes(argv[2],&pkg)){ fprintf(stderr,"Failed to fetch package: %s\n",argv[2]); return 1; }
         return install_package(&pkg);
     }
     if(strcmp(cmd,"remove")==0 && argc>=3) return remove_package(argv[2]);
     if(strcmp(cmd,"update")==0) return update_all_packages();
-    if(strcmp(cmd,"remote-add")==0 && argc>=3){
-        const char *name = argc>=4?argv[3]:NULL;
-        return add_remote(argv[2],name);
-    }
     if(strcmp(cmd,"lock")==0){
         FILE *f = fopen(lock_file,"w"); if(f){ fputs("locked",f); fclose(f); }
         printf("BitPuppy locked\n");
