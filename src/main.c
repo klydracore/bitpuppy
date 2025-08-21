@@ -220,9 +220,14 @@ static int fetch_package_from_remotes(const char *pkgname, Package *out_pkg){
         if(entry->d_name[0]=='.') continue;
 
         char listfile[PATH_MAX];
-        if(entry->d_type == DT_DIR){
-            snprintf(listfile,sizeof(listfile),"%s/%s/remote.choco.list", remdir, entry->d_name);
-        } else snprintf(listfile,sizeof(listfile),"%s/%s", remdir, entry->d_name);
+        char fullpath[PATH_MAX];
+        snprintf(fullpath,sizeof(fullpath),"%s/%s", remdir, entry->d_name);
+
+        if(is_dir(fullpath)){
+            snprintf(listfile,sizeof(listfile),"%s/remote.choco.list", fullpath);
+        } else {
+            snprintf(listfile,sizeof(listfile),"%s", fullpath);
+        }
 
         if(!path_exists(listfile)) continue;
 
